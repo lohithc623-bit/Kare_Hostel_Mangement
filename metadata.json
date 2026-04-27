@@ -1,0 +1,6 @@
+{
+  "name": "Hostel Meal Management System",
+  "description": "A comprehensive digital solution for managing student meal registrations, QR-based verification, attendance tracking, and fine management in university hostels.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["QR Scanning", "Real-time Dashboards", "Role-based Authentication"]
+}

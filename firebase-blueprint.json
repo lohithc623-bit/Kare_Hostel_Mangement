@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile for students, staff, and admins",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff", "student"] },
+        "registerNumber": { "type": "string" },
+        "messType": { "type": "string", "enum": ["Veg", "Non-Veg", "Special"] },
+        "roomNumber": { "type": "string" },
+        "phone": { "type": "string" },
+        "firstLogin": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Meal": {
+      "title": "Meal",
+      "description": "Daily meal menu and metadata",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["breakfast", "lunch", "dinner"] },
+        "date": { "type": "string", "format": "date" },
+        "menu": { "type": "string" },
+        "availability": { "type": "boolean" },
+        "closingTime": { "type": "string", "format": "date-time" },
+        "registeredCount": { "type": "integer" },
+        "verifiedCount": { "type": "integer" },
+        "absentCount": { "type": "integer" },
+        "fineCount": { "type": "integer" }
+      }
+    },
+    "Registration": {
+      "title": "Meal Registration",
+      "description": "A student's registration for a specific meal",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "mealId": { "type": "string" },
+        "mealType": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["REGISTERED", "VERIFIED", "ABSENT"] },
+        "fineAmount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "verifiedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of all users (students and admins)"
+    },
+    "meals": {
+      "schema": "Meal",
+      "description": "Collection of available meals indexed by date and type"
+    },
+    "registrations": {
+      "schema": "Registration",
+      "description": "Collection of meal registrations and attendance"
+    },
+    "staff": {
+      "schema": "User",
+      "description": "Explicit staff management (role-based filter of all users)"
+    }
+  }
+}

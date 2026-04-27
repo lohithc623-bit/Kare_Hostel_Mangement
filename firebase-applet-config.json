@@ -1,0 +1,11 @@
+{
+  "projectId": "hostel-management-834b9",
+  "appId": "1:410325397186:web:5b02d316f2ce594a72555b",
+  "apiKey": "AIzaSyC78SHEUAoMdR1Syr6iYfrXy4koA8MWP-E",
+  "authDomain": "hostel-management-834b9.firebaseapp.com",
+  "firestoreDatabaseId": "hostel-management-834b9",
+  "storageBucket": "hostel-management-834b9.firebasestorage.app",
+  "messagingSenderId": "410325397186",
+  "measurementId": "G-L0YM03GJC3",
+  "databaseURL": "https://hostel-management-834b9-default-rtdb.firebaseio.com"
+}
