@@ -2,12 +2,39 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { db } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, getDoc, increment, updateDoc } from 'firebase/firestore';
-import { Utensils, Clock, CheckCircle2, XCircle, Calendar, AlertTriangle, Coffee, Sun, Moon } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Utensils, Clock, CheckCircle2, XCircle, Calendar, AlertTriangle, Coffee, Sun, Moon, CalendarDays, Timer, Users, Sparkles, ChevronDown, ShieldCheck } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Meal, MealType, MealRegistration } from '../../types';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../lib/utils';
 import { isAfter, setHours, setMinutes, format, addDays } from 'date-fns';
+
+const mealConfig: Record<MealType, { icon: any; gradient: string; bg: string; border: string; accent: string; lightBg: string }> = {
+  breakfast: {
+    icon: Coffee,
+    gradient: 'from-amber-500 to-orange-500',
+    bg: 'bg-amber-50',
+    border: 'border-amber-100',
+    accent: 'text-amber-600',
+    lightBg: 'bg-amber-500/5',
+  },
+  lunch: {
+    icon: Sun,
+    gradient: 'from-orange-500 to-red-500',
+    bg: 'bg-orange-50',
+    border: 'border-orange-100',
+    accent: 'text-orange-600',
+    lightBg: 'bg-orange-500/5',
+  },
+  dinner: {
+    icon: Moon,
+    gradient: 'from-indigo-500 to-violet-500',
+    bg: 'bg-indigo-50',
+    border: 'border-indigo-100',
+    accent: 'text-indigo-600',
+    lightBg: 'bg-indigo-500/5',
+  },
+};
 
 export default function MealBooking() {
   const { profile } = useAuth();
@@ -18,7 +45,6 @@ export default function MealBooking() {
   useEffect(() => {
     if (!profile) return;
 
-    // Load today and tomorrow's meals (for breakfast booking)
     const today = format(new Date(), 'yyyy-MM-dd');
     const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
     
@@ -42,24 +68,38 @@ export default function MealBooking() {
     };
   }, [profile]);
 
-  const checkDeadline = (mealType: MealType, mealDate: string) => {
+  const checkDeadline = (mealType: MealType, mealDate: string, mealStartTime?: string) => {
     const now = new Date();
     const dateObj = new Date(mealDate);
     
-    if (mealType === 'breakfast') {
-      // Breakfast deadline is 10 PM of PREVIOUS day
-      const deadline = setMinutes(setHours(addDays(dateObj, -1), 22), 0);
-      return !isAfter(now, deadline);
-    } else if (mealType === 'lunch') {
-      // Lunch deadline is 9 AM of SAME day
-      const deadline = setMinutes(setHours(dateObj, 9), 0);
-      return !isAfter(now, deadline);
-    } else if (mealType === 'dinner') {
-      // Dinner deadline is 4 PM of SAME day
-      const deadline = setMinutes(setHours(dateObj, 16), 0);
-      return !isAfter(now, deadline);
+    // Default hours to subtract from start time for deadline calculation
+    const bufferHours = { breakfast: 10, lunch: 3, dinner: 3 };
+
+    if (!mealStartTime) {
+      // Fallback to static deadlines if admin hasn't set timing
+      if (mealType === 'breakfast') {
+        const deadline = setMinutes(setHours(addDays(dateObj, -1), 22), 0);
+        return !isAfter(now, deadline);
+      } else if (mealType === 'lunch') {
+        const deadline = setMinutes(setHours(dateObj, 9), 0);
+        return !isAfter(now, deadline);
+      } else if (mealType === 'dinner') {
+        const deadline = setMinutes(setHours(dateObj, 16), 0);
+        return !isAfter(now, deadline);
+      }
+      return false;
     }
-    return false;
+
+    // Dynamic deadline: X hours before startTime
+    const [hours, minutes] = mealStartTime.split(':').map(Number);
+    let deadline = setMinutes(setHours(dateObj, hours - bufferHours[mealType]), minutes);
+    
+    // For breakfast, if it becomes too early, cap it at 22:00 night before
+    if (mealType === 'breakfast') {
+       deadline = setMinutes(setHours(addDays(dateObj, -1), 21), 0); // 21:00 night before
+    }
+
+    return !isAfter(now, deadline);
   };
 
   const handleBooking = async (type: MealType, date: string) => {
@@ -70,14 +110,12 @@ export default function MealBooking() {
     setLoading(prev => ({ ...prev, [mealId]: true }));
     try {
       if (userRegistrations[mealId]) {
-        // Cancel booking
         await deleteDoc(doc(db, 'registrations', regId));
         await updateDoc(doc(db, 'meals', mealId), {
           registeredCount: increment(-1)
         });
         toast.success("Booking cancelled successfully");
       } else {
-        // Register booking
         await setDoc(doc(db, 'registrations', regId), {
           userId: profile.uid,
           userName: profile.name,
@@ -91,7 +129,6 @@ export default function MealBooking() {
           timestamp: new Date().toISOString()
         });
         
-        // Ensure meal doc exists to track count
         const mealDoc = await getDoc(doc(db, 'meals', mealId));
         if (!mealDoc.exists()) {
           await setDoc(doc(db, 'meals', mealId), {
@@ -124,69 +161,121 @@ export default function MealBooking() {
   const today = format(new Date(), 'yyyy-MM-dd');
   const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
 
+  const getCurrentMealPhase = (): MealType => {
+    const h = new Date().getHours();
+    if (h < 10) return 'breakfast';
+    if (h < 15) return 'lunch';
+    return 'dinner';
+  };
+
+  const formatOffsetTime = (timeStr: string, offsetHours: number) => {
+    if (!timeStr) return '';
+    try {
+      const [h, m] = timeStr.split(':').map(Number);
+      let newH = h + offsetHours;
+      if (newH < 0) newH = 24 + newH;
+      if (newH >= 24) newH = newH - 24;
+      return `${newH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    } catch {
+      return timeStr;
+    }
+  };
+
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h3 className="text-2xl font-bold tracking-tight text-[#141414]">Meal Booking</h3>
-        <p className="text-sm text-gray-500">Select your meals below. Please respect the registration deadlines.</p>
+    <div className="space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 px-1 sm:px-0">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div className="flex-1">
+          <div className="flex items-center gap-3 mb-2 sm:mb-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+              <CalendarDays size={20} />
+            </div>
+            <div>
+              <h3 className="text-xl sm:text-2xl font-serif font-bold text-slate-900">Meals Schedule</h3>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-widest">Pre-booking terminal</p>
+            </div>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500 sm:ml-[52px] leading-relaxed max-w-2xl">Discover upcoming service phases and reserve your slot before the automated portal closes for the day.</p>
+        </div>
+        <div className="hidden sm:flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm">
+          <Calendar size={14} className="text-slate-400" />
+          <span className="text-xs font-bold text-slate-700">{format(new Date(), 'EEEE, MMM d')}</span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <BookingCard 
-          icon={Coffee}
-          title="Breakfast"
+      {/* Schedule Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <ScheduleCard 
+          type="breakfast"
           date={tomorrow}
           dateLabel="Tomorrow"
           meal={todayMeals[`${tomorrow}-breakfast`]}
           registration={userRegistrations[`${tomorrow}-breakfast`]}
-          isAllowed={checkDeadline('breakfast', tomorrow)}
+          isAllowed={checkDeadline('breakfast', tomorrow, todayMeals[`${tomorrow}-breakfast`]?.startTime)}
           onBook={() => handleBooking('breakfast', tomorrow)}
           loading={loading[`${tomorrow}-breakfast`]}
-          deadlineInfo="Before 10:00 PM (Tonight)"
+          deadlineInfo="Before 21:00 (Tonight)"
+          isCurrent={false}
         />
-        <BookingCard 
-          icon={Sun}
-          title="Lunch"
+        <ScheduleCard 
+          type="lunch"
           date={today}
           dateLabel="Today"
           meal={todayMeals[`${today}-lunch`]}
           registration={userRegistrations[`${today}-lunch`]}
-          isAllowed={checkDeadline('lunch', today)}
+          isAllowed={checkDeadline('lunch', today, todayMeals[`${today}-lunch`]?.startTime)}
           onBook={() => handleBooking('lunch', today)}
           loading={loading[`${today}-lunch`]}
-          deadlineInfo="Before 9:00 AM"
+          deadlineInfo={todayMeals[`${today}-lunch`]?.startTime ? `Before ${formatOffsetTime(todayMeals[`${today}-lunch`].startTime, -3)}` : "Before 09:00"}
+          isCurrent={getCurrentMealPhase() === 'lunch'}
         />
-        <BookingCard 
-          icon={Moon}
-          title="Dinner"
+        <ScheduleCard 
+          type="dinner"
           date={today}
           dateLabel="Today"
           meal={todayMeals[`${today}-dinner`]}
           registration={userRegistrations[`${today}-dinner`]}
-          isAllowed={checkDeadline('dinner', today)}
+          isAllowed={checkDeadline('dinner', today, todayMeals[`${today}-dinner`]?.startTime)}
           onBook={() => handleBooking('dinner', today)}
           loading={loading[`${today}-dinner`]}
-          deadlineInfo="Before 4:00 PM"
+          deadlineInfo={todayMeals[`${today}-dinner`]?.startTime ? `Before ${formatOffsetTime(todayMeals[`${today}-dinner`].startTime, -3)}` : "Before 17:00"}
+          isCurrent={getCurrentMealPhase() === 'dinner'}
         />
       </div>
 
-      <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-        <div className="flex items-center gap-3 mb-6">
-          <AlertTriangle className="text-orange-500" size={24} />
-          <h4 className="font-bold text-gray-900 uppercase text-xs tracking-[0.2em]">Important Policy</h4>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="space-y-2">
-            <p className="text-sm font-bold text-gray-900">1. Missed Meals & Fines</p>
-            <p className="text-xs text-gray-500 leading-relaxed uppercase tracking-tight">
-              A fine of <span className="text-red-500 font-bold">₹50</span> will be automatically applied if you register for a meal but do not attend (Verified) without cancelling before the deadline.
-            </p>
+      {/* Policy Card */}
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-6 flex items-center gap-3 bg-amber-50/30 border-b border-amber-100/50">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/20">
+            <AlertTriangle size={16} />
           </div>
-          <div className="space-y-2">
-            <p className="text-sm font-bold text-gray-900">2. Verification Requirement</p>
-            <p className="text-xs text-gray-500 leading-relaxed uppercase tracking-tight">
-              You must present your <span className="text-orange-600 font-bold">QR PASS</span> to the mess warden. Failure to verify will result in being marked as ABSENT.
-            </p>
+          <div>
+            <h4 className="font-bold text-slate-900 text-xs sm:text-sm">Compliance & Policies</h4>
+            <p className="text-[8px] sm:text-[10px] text-slate-500 uppercase tracking-widest font-bold">Rules terminal</p>
+          </div>
+        </div>
+        <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          <div className="flex gap-3 sm:gap-4">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0 mt-0.5">
+              <XCircle size={14} />
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-bold text-slate-900 mb-1">Missed Slots & Penalties</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed">
+                A penalty of <span className="text-rose-500 font-bold">₹50</span> applies if you reserve a slot but fail to verify your entry at the gate.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-3 sm:gap-4">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center shrink-0 mt-0.5">
+              <Sparkles size={14} />
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-bold text-slate-900 mb-1">Entry Verification</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed">
+                You MUST present your digital <span className="text-emerald-600 font-bold">QR PASS</span>. Unverified entries are considered as missed meals.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -194,86 +283,165 @@ export default function MealBooking() {
   );
 }
 
-function BookingCard({ icon: Icon, title, dateLabel, meal, registration, isAllowed, onBook, loading, deadlineInfo }: any) {
+function ScheduleCard({ type, date, dateLabel, meal, registration, isAllowed, onBook, loading, deadlineInfo, isCurrent }: any) {
+  const config = mealConfig[type as MealType];
+  const Icon = config.icon;
   const isRegistered = !!registration;
+  const isVerified = registration?.status === 'VERIFIED';
   
   return (
-    <div className="bg-white rounded-3xl border border-gray-200 overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-shadow">
-      <div className={cn(
-        "p-6 flex items-center justify-between",
-        isRegistered ? "bg-orange-50 border-b border-orange-100" : "bg-gray-50 border-b border-gray-100"
-      )}>
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            "p-2 rounded-xl border",
-            isRegistered ? "bg-orange-600 text-white border-orange-600" : "bg-white text-gray-400 border-gray-200"
-          )}>
-            <Icon size={18} />
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        "rounded-2xl sm:rounded-3xl overflow-hidden flex flex-col transition-all",
+        isCurrent 
+          ? "shadow-xl shadow-emerald-100 ring-2 ring-emerald-200"
+          : "shadow-sm border border-slate-200",
+        "bg-white"
+      )}
+    >
+      {/* Card Header */}
+      <div className="relative">
+        <div className={cn(
+          "h-1.5 w-full bg-gradient-to-r",
+          isRegistered ? "from-emerald-400 to-teal-400" : config.gradient
+        )} />
+        <div className="p-4 sm:p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-sm border",
+              isRegistered 
+                ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
+                : `${config.bg} ${config.accent} ${config.border}`
+            )}>
+              <Icon size={window.innerWidth < 640 ? 18 : 22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-bold text-slate-900 text-sm sm:text-base capitalize">{type}</h4>
+                {isCurrent && (
+                  <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[8px] font-bold uppercase tracking-widest rounded-full">Live</span>
+                )}
+              </div>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-widest">{dateLabel}</p>
+            </div>
           </div>
-          <div>
-            <h4 className="font-bold text-gray-900 uppercase text-xs tracking-[0.1em]">{title}</h4>
-            <p className="text-[10px] text-gray-500 font-medium uppercase tracking-widest">{dateLabel}</p>
-          </div>
+          {isRegistered && (
+            <div className={cn(
+              "px-2 sm:px-3 py-1 rounded-full text-[8px] sm:text-[9px] font-bold uppercase tracking-wider border shrink-0 ml-2",
+              isVerified 
+                ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                : "bg-amber-50 text-amber-600 border-amber-100"
+            )}>
+              {isVerified ? '✓ Verified' : 'Booked'}
+            </div>
+          )}
         </div>
-        {isRegistered && (
-          <span className="bg-orange-100 text-orange-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter animate-pulse">
-            Booked
-          </span>
-        )}
       </div>
 
-      <div className="p-6 flex-1 space-y-4">
+      <div className="px-4 sm:px-6 pb-4 flex-1 space-y-4">
+        {/* Menu */}
         <div>
-          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Today's Menu</label>
-          <div className="bg-gray-50 rounded-2xl p-4 min-h-[5rem] flex items-center justify-center">
-            <p className="text-xs text-gray-700 font-serif italic text-center">
-              {meal?.menu || 'Menu details will be announced shortly.'}
+          <label className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2 flex items-center gap-1.5">
+            <Utensils size={10} />
+            Daily Menu
+          </label>
+          <div className={cn(
+            "rounded-xl sm:rounded-2xl p-3 sm:p-4 min-h-[4rem] sm:min-h-[4.5rem] flex items-center justify-center border",
+            meal?.menu ? `${config.lightBg} ${config.border}` : "bg-slate-50 border-slate-100"
+          )}>
+            <p className={cn(
+              "text-[11px] sm:text-xs text-center leading-relaxed",
+              meal?.menu ? "text-slate-700 font-medium" : "text-slate-400 italic"
+            )}>
+              {meal?.menu || 'Menu to be announced'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-start gap-2 pt-2">
-          <Clock size={14} className="text-gray-400 mt-0.5" />
-          <div>
-            <p className="text-[10px] font-bold text-gray-900 uppercase tracking-widest leading-none mb-1">Registration Deadline</p>
-            <p className="text-[10px] text-gray-500 uppercase tracking-tight">{deadlineInfo}</p>
+        {/* Info Grid */}
+        <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+            <Clock size={12} className="text-slate-400" />
+            <div className="min-w-0">
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Time</p>
+              <p className="text-[10px] font-bold text-slate-800 truncate">
+                {meal?.startTime && meal?.closingTime ? `${meal.startTime}—${meal.closingTime}` : 'Not set'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+            <Users size={12} className="text-slate-400" />
+            <div className="min-w-0">
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Pool</p>
+              <p className="text-[10px] text-slate-800 font-bold">{meal?.registeredCount ?? 0} pax</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Deadlines */}
+        <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 p-2.5 bg-rose-50/50 rounded-xl border border-rose-100/50">
+            <Timer size={12} className="text-rose-400 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[8px] font-bold text-rose-400 uppercase tracking-widest leading-none mb-1">Booking Ends</p>
+              <p className="text-[10px] text-rose-800 font-bold truncate">{deadlineInfo}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 p-2.5 bg-blue-50/50 rounded-xl border border-blue-100/50">
+            <ShieldCheck size={12} className="text-blue-400 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[8px] font-bold text-blue-400 uppercase tracking-widest leading-none mb-1">Entry Ends</p>
+              <p className="text-[10px] text-blue-800 font-bold truncate">{meal?.closingTime || 'Not set'}</p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="p-4 bg-gray-50/50 border-t border-gray-100">
-        {!isAllowed && !isRegistered ? (
-          <div className="w-full bg-gray-200 text-gray-500 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 cursor-not-allowed">
-            <XCircle size={14} />
-            Registration Closed
-          </div>
-        ) : (
-          <button 
-            disabled={loading || (!isAllowed && isRegistered && registration.status !== 'REGISTERED')}
-            onClick={onBook}
-            className={cn(
-              "w-full py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2",
-              isRegistered 
-                ? "bg-white border border-red-200 text-red-500 hover:bg-red-50" 
-                : "bg-[#141414] text-white hover:bg-gray-800"
-            )}
-          >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-            ) : isRegistered ? (
-              <><XCircle size={14} /> Cancel Booking</>
-            ) : (
-              <><CheckCircle2 size={14} /> Confirm Choice</>
-            )}
-          </button>
-        )}
-        
-        {!isAllowed && isRegistered && (
-          <p className="text-[10px] text-center mt-2 text-red-400 font-medium uppercase tracking-tight">
-            * Deadline passed. Visit count as marked.
-          </p>
-        )}
+      {/* Action Footer */}
+      <div className="p-4 bg-slate-50/30 border-t border-slate-100">
+        <motion.button 
+          whileHover={!isVerified && isAllowed ? { scale: 1.01 } : {}}
+          whileTap={!isVerified && isAllowed ? { scale: 0.98 } : {}}
+          disabled={loading || isVerified || (!isAllowed && !isRegistered)}
+          onClick={onBook}
+          className={cn(
+            "w-full py-3 sm:py-3.5 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+            isVerified
+              ? "bg-emerald-100 text-emerald-700 cursor-not-allowed"
+              : isRegistered 
+                ? "bg-white border border-rose-200 text-rose-500 hover:bg-rose-50" 
+                : isAllowed
+                  ? `bg-slate-900 text-white shadow-lg`
+                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
+          )}
+        >
+          {loading ? (
+            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+          ) : isVerified ? (
+            <>
+              <CheckCircle2 size={12} />
+              Verified
+            </>
+          ) : isRegistered ? (
+            <>
+              <XCircle size={12} />
+              Cancel Slot
+            </>
+          ) : isAllowed ? (
+            <>
+              <CheckCircle2 size={12} />
+              Reserve Slot
+            </>
+          ) : (
+            <>
+              <XCircle size={12} />
+              Closed
+            </>
+          )}
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   );
 }

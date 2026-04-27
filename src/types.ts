@@ -1,7 +1,7 @@
 export type UserRole = 'admin' | 'staff' | 'student';
-export type MessType = 'Veg' | 'Non-Veg' | 'Special';
+export type MessType = 'Veg' | 'Non-Veg';
 export type MealType = 'breakfast' | 'lunch' | 'dinner';
-export type RegistrationStatus = 'REGISTERED' | 'VERIFIED' | 'ABSENT';
+export type RegistrationStatus = 'REGISTERED' | 'VERIFIED' | 'ABSENT' | 'CANCELLED';
 
 export interface UserProfile {
   uid: string;
@@ -12,6 +12,7 @@ export interface UserProfile {
   messType?: MessType;
   roomNumber?: string;
   phone?: string;
+  age?: number;
   firstLogin?: boolean;
   createdAt: string;
 }
@@ -22,6 +23,7 @@ export interface Meal {
   date: string;
   menu: string;
   availability: boolean;
+  startTime?: string;
   closingTime: string;
   registeredCount: number;
   verifiedCount: number;
@@ -41,4 +43,18 @@ export interface MealRegistration {
   fineAmount: number;
   timestamp: string;
   verifiedAt?: string;
+}
+
+export interface AccountSettings {
+  hostelName: string;
+  inchargeName: string;
+  mobile: string;
+  address: string;
+  updatedAt?: string;
+}
+
+export interface StudentVerification {
+  isValid: boolean;
+  message: string;
+  student?: UserProfile & { status?: RegistrationStatus, registeredAt?: string, verifiedAt?: string };
 }

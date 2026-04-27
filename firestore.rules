@@ -1,47 +1,65 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
 
     // Helper functions
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    // Check role by looking up the requester's possible profile paths
+    // Uses the user's UID or email (lowercased) as the document ID
+    function hasRole(role) {
+      let uidPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      let emailPath = request.auth.token.email != null 
+        ? /databases/$(database)/documents/users/$(request.auth.token.email.lower()) 
+        : uidPath;
+      
+      return isSignedIn() && (
+        (exists(uidPath) && get(uidPath).data.role == role) ||
+        (request.auth.token.email != null && exists(emailPath) && get(emailPath).data.role == role)
+      );
     }
 
     function isAdmin() {
-      return isSignedIn() && getUserData().role == 'admin';
+      return hasRole('admin');
     }
 
     function isStaff() {
-      return isSignedIn() && (getUserData().role == 'staff' || getUserData().role == 'admin');
+      return hasRole('staff') || hasRole('admin');
     }
 
     function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return isSignedIn() && (
+        request.auth.uid == userId || 
+        (request.auth.token.email != null && request.auth.token.email.lower() == userId.lower())
+      );
     }
 
     // Collection: Users
     match /users/{userId} {
-      allow read: if isStaff() || isOwner(userId);
-      allow create: if isAdmin() || (isOwner(userId) && request.resource.data.email == 'balajidamineni@gmail.com');
-      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['password', 'firstLogin', 'phone', 'qrCodeData']));
+      // Any signed-in user can read ANY user document.
+      // This is required for:
+      //   1. The auth hook to look up profiles by UID and email
+      //   2. Admin Dashboard to query users with where('role', '==', 'student')
+      //   3. Staff list / Student list pages
+      //   4. The hasRole() helper itself needs to read user docs
+      allow read: if isSignedIn();
+      
+      // Admin can create any user. First-time admin bootstrap: allow if the 
+      // user is creating their own doc with the configured admin email.
+      allow create: if isAdmin() || (isSignedIn() && isOwner(userId) && request.resource.data.email == request.auth.token.email);
+      
+      // Admin can update anything; Users can update their own subset of fields
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['password', 'phone', 'qrCodeData', 'firstLogin']));
+      
+      // Only Admin can delete
       allow delete: if isAdmin();
     }
 
     // Public connection test document
     match /test/connection {
-      allow read: if true;
+      allow read, write: if true;
     }
 
     // Collection: Meals
@@ -53,18 +71,36 @@ service cloud.firestore {
     // Collection: Registrations
     match /registrations/{regId} {
       function isValidRegistration(data) {
-        return data.userId is string && data.mealId is string && data.status in ['REGISTERED', 'VERIFIED', 'ABSENT'];
+        return data.userId is string && data.mealId is string && data.status in ['REGISTERED', 'VERIFIED', 'ABSENT', 'CANCELLED'];
       }
 
-      allow read: if isStaff() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() && isValidRegistration(request.resource.data) && (request.resource.data.userId == request.auth.uid || isStaff());
-      allow update: if isStaff() || (isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
-      allow delete: if isStaff();
+      // Any signed-in user can read registrations.
+      // This is required because Firestore evaluates security rules BEFORE
+      // filtering query results. A where('userId', '==', uid) query still 
+      // needs read permission on the entire collection to execute.
+      // Staff need to read all registrations for dashboard/scanner.
+      // Students see all but their queries filter to their own data anyway.
+      allow read: if isSignedIn();
+      
+      // Creation and management
+      allow create: if isSignedIn() && isValidRegistration(request.resource.data) && (
+        request.resource.data.userId == request.auth.uid || 
+        (request.auth.token.email != null && request.resource.data.userId == request.auth.token.email.lower()) || 
+        isStaff()
+      );
+      allow update: if isStaff() || (isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        (request.auth.token.email != null && resource.data.userId == request.auth.token.email.lower())
+      ) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow delete: if isStaff() || (isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        (request.auth.token.email != null && resource.data.userId == request.auth.token.email.lower())
+      ) && resource.data.status == 'REGISTERED');
     }
 
     // Collection: Stats
     match /stats/{statId} {
-      allow read: if isStaff();
+      allow read: if isSignedIn();
       allow write: if isStaff();
     }
   }

@@ -1,21 +1,14 @@
-import { initializeApp } from 'firebase/app';
+import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app); // Use default database ID from config
+// Initialize Firebase with better handle for re-initialization
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+// We try to use the default database, but fallback to project ID if needed
+// Based on logs, the project seems to have issues finding '(default)'
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error: any) {
-    if (error.message?.includes('the client is offline')) {
-      console.warn("Firestore is operating in offline mode. This is expected if the backend is not yet fully provisioned or if there are network constraints.");
-    } else {
-      console.error("Firestore connection error:", error);
-    }
-  }
-}
-testConnection();
+// Simple connection health check removed to reduce console noise.

@@ -1,21 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, query, onSnapshot, addDoc, updateDoc, deleteDoc, doc, where, setDoc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
-import { deleteApp, initializeApp } from 'firebase/app';
-import firebaseConfig from '../../../firebase-applet-config.json';
+import { collection, query, onSnapshot, updateDoc, deleteDoc, doc, where, setDoc } from 'firebase/firestore';
 import { Search, Edit2, Trash2, X, Save, UserPlus, Info, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../../types';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../lib/utils';
+import { useAuth } from '../../hooks/useAuth';
 
 export default function StaffList() {
+  const { profile } = useAuth();
   const [staff, setStaff] = useState<UserProfile[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const isAdmin = profile?.role === 'admin';
 
   // Form State
   const [formData, setFormData] = useState({
@@ -39,6 +40,10 @@ export default function StaffList() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      toast.error("Only admins can manage staff members.");
+      return;
+    }
     setLoading(true);
 
     try {
@@ -49,35 +54,35 @@ export default function StaffList() {
         });
         toast.success("Staff updated successfully");
       } else {
-        const secondaryApp = initializeApp(firebaseConfig, "SecondaryStaff");
-        const secondaryAuth = getAuth(secondaryApp);
+        // Since we enforce Google SSO, we no longer create traditional passwords.
+        // We set the document ID exactly to their email address.
+        const uid = formData.email.toLowerCase();
         
-        try {
-          const userCred = await createUserWithEmailAndPassword(secondaryAuth, formData.email, 'hostel2026');
-          const uid = userCred.user.uid;
-
-          await setDoc(doc(db, 'users', uid), {
-            ...formData,
-            uid,
-            role: 'staff',
-            firstLogin: true,
-            createdAt: new Date().toISOString()
-          });
-          toast.success("Staff member created");
-        } finally {
-          await deleteApp(secondaryApp);
-        }
+        await setDoc(doc(db, 'users', uid), {
+          ...formData,
+          email: formData.email.toLowerCase(),
+          uid,
+          role: 'staff',
+          firstLogin: true,
+          createdAt: new Date().toISOString()
+        });
+        toast.success("Staff member created. They can now login via Google.");
       }
       setIsModalOpen(false);
       resetForm();
     } catch (err: any) {
-      toast.error(err.message);
+      console.error('Staff save error:', err);
+      toast.error(err.message || "Failed to save staff member");
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (uid: string) => {
+    if (!isAdmin) {
+      toast.error("Only admins can delete staff members.");
+      return;
+    }
     if (window.confirm("Delete this staff member? They will lose all access.")) {
       try {
         await deleteDoc(doc(db, 'users', uid));
@@ -94,89 +99,150 @@ export default function StaffList() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 px-1 sm:px-0">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-xl font-bold tracking-tight text-[#141414]">Staff Management</h3>
-          <p className="text-xs text-gray-500 uppercase tracking-widest mt-1">Personnel with mess hall access</p>
+          <h3 className="text-2xl sm:text-3xl font-serif font-bold text-slate-900 mb-1">Staff Management</h3>
+          <p className="text-xs sm:text-sm text-slate-400 font-medium whitespace-nowrap">Personnel authorized for hall operations</p>
         </div>
-        <button 
-          onClick={() => { resetForm(); setIsModalOpen(true); }}
-          className="bg-[#141414] text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-gray-800 transition-all shadow-lg"
-        >
-          <UserPlus size={16} />
-          Add Staff Member
-        </button>
+        {isAdmin && (
+          <button 
+            onClick={() => { resetForm(); setIsModalOpen(true); }}
+            className="bg-primary text-white font-bold text-[10px] sm:text-xs uppercase tracking-widest px-6 py-4 sm:px-8 sm:py-5 rounded-xl sm:rounded-2xl shadow-lg hover:shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
+          >
+            <UserPlus size={16} />
+            Add Staff Member
+          </button>
+        )}
       </div>
 
-      <div className="relative">
+      {/* Search Input */}
+      <div className="relative group">
         <input 
           type="text"
-          placeholder="Search staff by name or email..."
+          placeholder="Lookup staff name or email identity..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-white border border-gray-200 rounded-2xl px-12 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all shadow-sm"
+          className="w-full bg-white border border-slate-200 rounded-xl sm:rounded-2xl px-5 sm:px-6 py-4 sm:py-5 pl-12 sm:pl-14 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary transition-all shadow-sm"
         />
-        <Search className="absolute left-4 top-4 text-gray-400" size={20} />
+        <Search className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={18} />
       </div>
 
-      <div className="bg-white rounded-3xl border border-gray-200 overflow-hidden shadow-sm">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
-              <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Name</th>
-              <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Email</th>
-              <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Phone</th>
-              <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {filteredStaff.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic text-sm">No staff members found.</td>
+      <div className="bg-white border border-slate-100 rounded-2xl sm:rounded-3xl overflow-hidden shadow-sm">
+        {/* Desktop Table View */}
+        <div className="hidden lg:block overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-slate-50/50 border-b border-slate-100">
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Profile Identity</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email Contact</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Mobile Connection</th>
+                {isAdmin && (
+                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                )}
               </tr>
-            ) : (
-              filteredStaff.map((person) => (
-                <tr key={person.uid} className="hover:bg-gray-50/50 transition-colors group">
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {filteredStaff.length > 0 && filteredStaff.map((person) => (
+                <tr key={person.uid} className="hover:bg-slate-50/30 transition-colors group">
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-xs uppercase">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm uppercase">
                         {person.name[0]}
                       </div>
-                      <p className="text-sm font-bold text-gray-900 uppercase tracking-tight">{person.name}</p>
+                      <p className="text-sm font-bold text-slate-900 truncate max-w-[200px] uppercase tracking-tight">{person.name}</p>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-xs font-medium text-gray-600">{person.email}</td>
-                  <td className="px-6 py-4 text-xs font-medium text-gray-600">{person.phone || 'N/A'}</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => {
-                          setEditingStaff(person);
-                          setFormData({
-                            name: person.name,
-                            email: person.email,
-                            phone: person.phone || '',
-                          });
-                          setIsModalOpen(true);
-                        }}
-                        className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(person.uid)}
-                        className="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                  <td className="px-6 py-4 text-xs font-medium text-slate-500 whitespace-nowrap">{person.email}</td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="text-xs font-mono font-bold text-slate-400">{person.phone || '—'}</span>
                   </td>
+                  {isAdmin && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => {
+                            setEditingStaff(person);
+                            setFormData({
+                              name: person.name,
+                              email: person.email,
+                              phone: person.phone || '',
+                            });
+                            setIsModalOpen(true);
+                          }}
+                          className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-primary transition-all"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(person.uid)}
+                          className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile Card-based List */}
+        <div className="lg:hidden divide-y divide-slate-100">
+          {filteredStaff.length > 0 && filteredStaff.map((person) => (
+            <div key={person.uid} className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-11 h-11 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm shrink-0">
+                  {person.name[0]}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 truncate uppercase mt-0.5">{person.name}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-[10px] text-slate-400 font-medium truncate max-w-[150px]">{person.email}</p>
+                    {person.phone && (
+                      <>
+                        <span className="w-1 h-1 rounded-full bg-slate-200" />
+                        <p className="text-[10px] font-mono text-slate-400 font-bold">{person.phone}</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-2 ml-4 shrink-0">
+                <button 
+                  onClick={() => {
+                    setEditingStaff(person);
+                    setFormData({
+                      name: person.name,
+                      email: person.email,
+                      phone: person.phone || '',
+                    });
+                    setIsModalOpen(true);
+                  }}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 active:bg-slate-100 transition-colors"
+                >
+                  <Edit2 size={18} />
+                </button>
+                <button 
+                  onClick={() => handleDelete(person.uid)}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 active:bg-rose-50 active:text-rose-600 transition-colors"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Empty State */}
+        {filteredStaff.length === 0 && (
+          <div className="py-20 text-center">
+            <p className="text-slate-400 italic text-sm font-medium">No personnel records found.</p>
+          </div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -198,7 +264,7 @@ export default function StaffList() {
               <div className="p-8 border-b border-gray-100 flex items-center justify-between">
                 <div>
                   <h4 className="text-xl font-bold text-gray-900 tracking-tight">{editingStaff ? 'Edit Staff' : 'Add Staff Member'}</h4>
-                  <p className="text-xs text-gray-500 uppercase tracking-widest mt-1">Assign system permissions</p>
+                  <p className="text-xs text-gray-500 uppercase tracking-widest mt-1">Assign system permissions via Google SSO</p>
                 </div>
                 <button onClick={() => setIsModalOpen(false)} className="text-gray-500"><X size={20} /></button>
               </div>
@@ -215,15 +281,19 @@ export default function StaffList() {
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1 mb-1 block">Email</label>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1 mb-1 block">Google Email Address</label>
                     <input 
                       required
                       type="email"
                       disabled={!!editingStaff}
                       value={formData.email}
                       onChange={(e) => setFormData({...formData, email: e.target.value})}
+                      placeholder="staff@gmail.com"
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm disabled:opacity-50"
                     />
+                    {!editingStaff && (
+                      <p className="text-[9px] text-gray-400 mt-1 ml-1">Staff will login using Google SSO with this exact email.</p>
+                    )}
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1 mb-1 block">Phone</label>
@@ -239,7 +309,8 @@ export default function StaffList() {
                 <div className="bg-orange-50 p-4 rounded-xl flex gap-3 border border-orange-100">
                   <ShieldCheck className="text-orange-600 shrink-0" size={18} />
                   <p className="text-[10px] text-orange-800 font-medium leading-relaxed uppercase tracking-tight">
-                    By default, staff can scan QR codes and update meal availability but cannot create other staff members or delete student profiles.
+                    By default, staff can scan QR codes and update meal availability but cannot create other staff members or delete student profiles. 
+                    <strong className="block mt-1">Staff must login using Google SSO with this EXACT email address.</strong>
                   </p>
                 </div>
 

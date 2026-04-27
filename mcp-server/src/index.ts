@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -6,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import * as fs from 'fs';
 
 // Firebase configuration from the project
 const firebaseConfig = {
@@ -20,17 +22,28 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase Admin
-let db: any;
+export let db: any;
 try {
   if (getApps().length === 0) {
-    // Use application default credentials or mock for development
-    initializeApp({
-      projectId: firebaseConfig.projectId,
-    });
+    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    
+    if (serviceAccountPath) {
+      const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+      initializeApp({
+        credential: cert(serviceAccount),
+        projectId: firebaseConfig.projectId,
+      });
+    } else {
+      // Use application default credentials
+      initializeApp({
+        projectId: firebaseConfig.projectId,
+      });
+    }
   }
   db = getFirestore();
-} catch (error) {
-  console.error('Firebase initialization error:', error);
+} catch (error: any) {
+  console.error('Firebase initialization error details:', error.message);
+  if (error.stack) console.error(error.stack);
 }
 
 // Define available tools
@@ -269,7 +282,9 @@ async function main() {
   console.error('Firebase MCP Server running on stdio');
 }
 
-main().catch((error) => {
-  console.error('Failed to start server:', error);
-  process.exit(1);
-});
+if (process.env.NODE_ENV !== 'test') {
+  main().catch((error) => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  });
+}
