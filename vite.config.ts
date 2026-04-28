@@ -16,11 +16,18 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
-      host: true,
+      host: '0.0.0.0',
       port: 3000,
-      hmr: process.env.DISABLE_HMR !== 'true' ? {
-        clientPort: 3000
-      } : false,
+      strictPort: true,
+      watch: {
+        ignored: ['**/firestore.rules', '**/.firebase/**', '**/firebase.json'],
+      },
+      hmr: {
+        protocol: 'ws',
+        host: 'localhost',
+        port: 3000,
+      },
+      middlewareMode: false,
     },
   };
 });

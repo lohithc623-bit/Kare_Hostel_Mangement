@@ -3,7 +3,7 @@ import { db } from '../../lib/firebase';
 import { collection, query, onSnapshot, doc, setDoc, updateDoc, getDocs, where, writeBatch, deleteDoc } from 'firebase/firestore';
 import { Utensils, Clock, XCircle, Save, AlertCircle, Calendar as CalendarIcon, Info, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Meal, MealType } from '../../types';
+import { Meal, MealRegistration, MealType } from '../../types';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../lib/utils';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -20,16 +20,84 @@ export default function MealManagement() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, 'meals'), where('date', '==', selectedDate));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    let latestMeals: Record<MealType, Meal | null> = { breakfast: null, lunch: null, dinner: null };
+    let latestStats: Record<MealType, { registeredCount: number; verifiedCount: number }> = {
+      breakfast: { registeredCount: 0, verifiedCount: 0 },
+      lunch: { registeredCount: 0, verifiedCount: 0 },
+      dinner: { registeredCount: 0, verifiedCount: 0 }
+    };
+
+    const syncMealsWithLiveCounts = () => {
+      const merged: Record<MealType, Meal | null> = {
+        breakfast: latestMeals.breakfast
+          ? {
+              ...latestMeals.breakfast,
+              registeredCount: latestStats.breakfast.registeredCount,
+              verifiedCount: latestStats.breakfast.verifiedCount
+            }
+          : null,
+        lunch: latestMeals.lunch
+          ? {
+              ...latestMeals.lunch,
+              registeredCount: latestStats.lunch.registeredCount,
+              verifiedCount: latestStats.lunch.verifiedCount
+            }
+          : null,
+        dinner: latestMeals.dinner
+          ? {
+              ...latestMeals.dinner,
+              registeredCount: latestStats.dinner.registeredCount,
+              verifiedCount: latestStats.dinner.verifiedCount
+            }
+          : null
+      };
+
+      setMeals(merged);
+    };
+
+    const mealsQuery = query(collection(db, 'meals'), where('date', '==', selectedDate));
+    const unsubscribeMeals = onSnapshot(mealsQuery, (snapshot) => {
       const mealsData: Record<MealType, Meal | null> = { breakfast: null, lunch: null, dinner: null };
-      snapshot.docs.forEach(doc => {
-        const data = doc.data() as Meal;
-        mealsData[data.type] = { ...data, id: doc.id };
+      snapshot.docs.forEach((mealDoc) => {
+        const data = mealDoc.data() as Meal;
+        mealsData[data.type] = { ...data, id: mealDoc.id };
       });
-      setMeals(mealsData);
+      latestMeals = mealsData;
+      syncMealsWithLiveCounts();
     });
-    return () => unsubscribe();
+
+    const regsQuery = query(collection(db, 'registrations'), where('date', '==', selectedDate));
+    const unsubscribeRegs = onSnapshot(regsQuery, (snapshot) => {
+      const stats: Record<MealType, { registeredCount: number; verifiedCount: number }> = {
+        breakfast: { registeredCount: 0, verifiedCount: 0 },
+        lunch: { registeredCount: 0, verifiedCount: 0 },
+        dinner: { registeredCount: 0, verifiedCount: 0 }
+      };
+
+      snapshot.docs.forEach((regDoc) => {
+        const reg = regDoc.data() as MealRegistration;
+        const type = reg.mealType || (reg.mealId?.split('-').pop() as MealType);
+        if (!type || !stats[type]) return;
+
+        const status = (reg.status || '').toUpperCase();
+
+        // Count all non-cancelled bookings as registrants and VERIFIED as present.
+        if (status !== 'CANCELLED') {
+          stats[type].registeredCount += 1;
+        }
+        if (status === 'VERIFIED') {
+          stats[type].verifiedCount += 1;
+        }
+      });
+
+      latestStats = stats;
+      syncMealsWithLiveCounts();
+    });
+
+    return () => {
+      unsubscribeMeals();
+      unsubscribeRegs();
+    };
   }, [selectedDate]);
 
   const handleUpdateMeal = async (type: MealType, data: Partial<Meal>) => {
@@ -151,7 +219,7 @@ export default function MealManagement() {
            <Info size={120} className="text-white" />
         </div>
         <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-500 rounded-xl sm:rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-emerald-500/20 relative z-10">
-          <AlertCircle size={20} sm:size={24} />
+          <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6" />
         </div>
         <div className="relative z-10 flex-1">
           <h4 className="font-bold text-emerald-400 uppercase text-[10px] tracking-widest mb-2">Automated Compliance Terminal</h4>

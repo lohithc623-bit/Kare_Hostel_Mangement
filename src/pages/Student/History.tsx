@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { db } from '../../lib/firebase';
-import { collection, query, where, onSnapshot, orderBy, doc, getDoc } from 'firebase/firestore';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { History as HistoryIcon, Utensils, CheckCircle, XCircle, Clock, Coffee, Sun, Moon, Timer, CalendarDays } from 'lucide-react';
-import { MealRegistration, Meal, MealType } from '../../types';
+import type { LucideIcon } from 'lucide-react';
+import type { MealRegistration, MealType, RegistrationStatus } from '../../types';
 import { cn, formatDate, formatTime } from '../../lib/utils';
 
-const mealIcons: Record<MealType, any> = {
+const mealIcons: Record<MealType, LucideIcon> = {
   breakfast: Coffee,
   lunch: Sun,
   dinner: Moon
@@ -18,9 +20,10 @@ const mealColors: Record<MealType, { bg: string; text: string; border: string; i
   dinner: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-100', icon: 'text-indigo-500' },
 };
 
-const statusConfig = {
+const statusConfig: Record<RegistrationStatus, { bg: string; text: string; border: string; icon: LucideIcon; label: string }> = {
   VERIFIED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100', icon: CheckCircle, label: 'Verified' },
   ABSENT: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-100', icon: XCircle, label: 'Absent' },
+  CANCELLED: { bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200', icon: XCircle, label: 'Cancelled' },
   REGISTERED: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-100', icon: Clock, label: 'Pending' },
 };
 
@@ -37,17 +40,17 @@ export default function History() {
       orderBy('timestamp', 'desc')
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setHistory(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MealRegistration)));
+      setHistory(snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() } as MealRegistration)));
     });
     return () => unsubscribe();
   }, [profile]);
 
-  const filteredHistory = filter === 'all' ? history : history.filter(r => r.status === filter);
+  const filteredHistory = filter === 'all' ? history : history.filter((reg: MealRegistration) => reg.status === filter);
 
   // Stats counters
-  const verifiedCount = history.filter(r => r.status === 'VERIFIED').length;
-  const absentCount = history.filter(r => r.status === 'ABSENT').length;
-  const pendingCount = history.filter(r => r.status === 'REGISTERED').length;
+  const verifiedCount = history.filter((reg: MealRegistration) => reg.status === 'VERIFIED').length;
+  const absentCount = history.filter((reg: MealRegistration) => reg.status === 'ABSENT').length;
+  const pendingCount = history.filter((reg: MealRegistration) => reg.status === 'REGISTERED').length;
 
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 px-1 sm:px-0">

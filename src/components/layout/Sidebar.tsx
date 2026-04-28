@@ -17,7 +17,7 @@ const adminLinks = [
 
 const studentLinks = [
   { href: '/student', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/student/register', label: 'Meals Schedule', icon: CalendarDays },
+  { href: '/student/register', label: 'Meals Booking', icon: Utensils },
   { href: '/student/history', label: 'History', icon: History },
   { href: '/student/fines', label: 'Fines', icon: CreditCard },
 ];

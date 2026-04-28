@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 
 interface StatCardProps {
   title: string;
-  value: number;
+  value: number | string;
   icon: React.ReactNode;
   trend?: string;
   trendUp?: boolean;
@@ -15,10 +15,15 @@ interface StatCardProps {
 export const StatCard: React.FC<StatCardProps> = ({ 
   title, value, icon, trend, trendUp = true, color = 'emerald', className 
 }) => {
-  const [displayValue, setDisplayValue] = useState(0);
+  const [displayValue, setDisplayValue] = useState<number | string>(value);
 
   // Simple count-up animation
   useEffect(() => {
+    if (typeof value === 'string') {
+      setDisplayValue(value);
+      return;
+    }
+
     let start = 0;
     const duration = 1000;
     const end = value;
@@ -75,7 +80,7 @@ export const StatCard: React.FC<StatCardProps> = ({
       </div>
       <div>
         <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-1 animate-count-up">
-          {displayValue.toLocaleString()}
+          {typeof displayValue === 'number' ? displayValue.toLocaleString() : displayValue}
         </h3>
         <p className="text-xs text-slate-500 uppercase tracking-widest font-medium">
           {title}

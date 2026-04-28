@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, query, onSnapshot, getDocs, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { Users, Utensils, CheckCircle, XCircle, AlertTriangle, ArrowUpRight } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { motion } from 'motion/react';
 import { Meal, MealRegistration } from '../../types';
 import { StatCard } from '../../components/ui/StatCard';
 import { DonutChart, BarChart } from '../../components/ui/Chart';
@@ -79,7 +78,7 @@ export default function AdminDashboard() {
 
   const donutData = [
     { label: 'Verified', value: stats.verifiedToday, color: '#059669' }, // emerald-600
-    { label: 'Pending', value: stats.registeredToday - stats.verifiedToday - stats.absentToday, color: '#f59e0b' }, // amber-500
+    { label: 'Pending', value: Math.max(stats.registeredToday - stats.verifiedToday - stats.absentToday, 0), color: '#f59e0b' }, // amber-500
     { label: 'Absent', value: stats.absentToday, color: '#ef4444' } // red-500
   ];
 
@@ -88,6 +87,35 @@ export default function AdminDashboard() {
     { label: 'Lunch', value: mealStats.lunch, color: '#0f766e' },
     { label: 'Dinner', value: mealStats.dinner, color: '#0f766e' }
   ];
+
+  // Keep registration volume total in sync with the bars shown in the chart.
+  const registrationVolumeTotal = barData.reduce((sum, item) => sum + item.value, 0);
+
+  const pendingToday = donutData.find(d => d.label === 'Pending')?.value || 0;
+  const verificationTotal = stats.verifiedToday + stats.absentToday + pendingToday;
+  const hasVerificationData = verificationTotal > 0;
+  const hasRegistrationData = registrationVolumeTotal > 0;
+
+  const orderedMeals: Array<Meal['type']> = ['breakfast', 'lunch', 'dinner'];
+
+  const getMealWindowLabel = (meal: Meal) => {
+    const hasStartTime = !!meal.startTime;
+    const hasClosingTime = !!meal.closingTime;
+
+    if (!hasStartTime && !hasClosingTime) {
+      return 'Time not configured';
+    }
+
+    if (!hasStartTime) {
+      return `Until ${formatTime(meal.closingTime)}`;
+    }
+
+    if (!hasClosingTime) {
+      return `Starts ${formatTime(meal.startTime)}`;
+    }
+
+    return `${formatTime(meal.startTime)} - ${formatTime(meal.closingTime)}`;
+  };
 
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-bottom-3 duration-700 px-1 sm:px-0">
@@ -123,32 +151,71 @@ export default function AdminDashboard() {
             <h4 className="font-bold text-slate-800 text-[10px] sm:text-xs tracking-wider uppercase">Verification Flow</h4>
             <span className="text-[9px] sm:text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase tracking-widest border border-emerald-100">Today</span>
           </div>
-          <div className="relative py-4">
-            <DonutChart data={donutData} size={window.innerWidth < 640 ? 140 : 180} />
-          </div>
-          <div className="mt-6 sm:mt-8 grid grid-cols-3 w-full gap-2 border-t border-slate-50 pt-6">
-            {donutData.map((d, i) => (
-              <div key={i} className="flex flex-col items-center text-center">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: d.color }}></div>
-                  <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.label}</span>
+          {!hasVerificationData ? (
+            <div className="w-full rounded-2xl border border-dashed border-amber-200 bg-amber-50/60 p-5 text-center">
+              <p className="text-sm sm:text-base font-semibold text-amber-800">No booking stats for today</p>
+              <p className="text-[10px] sm:text-xs text-amber-700/80 mt-1">Verification flow will appear once students register meals.</p>
+            </div>
+          ) : (
+            <>
+              <div className="relative py-4">
+                <DonutChart data={donutData} size={180} />
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-2xl font-bold text-slate-900">{verificationTotal}</span>
+                  <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">Total Checks</span>
                 </div>
-                <span className="text-base sm:text-xl font-bold text-slate-800">{d.value}</span>
               </div>
-            ))}
-          </div>
+              <div className="mt-6 sm:mt-8 grid grid-cols-3 w-full gap-2 border-t border-slate-50 pt-6">
+                {donutData.map((d, i) => (
+                  <div key={i} className="flex flex-col items-center text-center">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: d.color }}></div>
+                      <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.label}</span>
+                    </div>
+                    <span className="text-base sm:text-xl font-bold text-slate-800">{d.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Meal History Bar Chart */}
         <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-100 shadow-sm p-5 sm:p-6 flex flex-col">
-           <h4 className="font-bold text-slate-800 text-[10px] sm:text-xs tracking-wider uppercase mb-6 sm:mb-8">Registration Volume</h4>
-           <div className="flex-1 flex items-center justify-center min-h-[160px] sm:min-h-[180px]">
-             {mealStats.breakfast === 0 && mealStats.lunch === 0 && mealStats.dinner === 0 ? (
-               <div className="text-slate-300 text-[10px] sm:text-xs italic font-medium">No registrations data available</div>
-             ) : (
-               <BarChart data={barData} height={180} />
-             )}
-           </div>
+          <div className="flex items-center justify-between mb-6 sm:mb-8">
+            <h4 className="font-bold text-slate-800 text-[10px] sm:text-xs tracking-wider uppercase">Registration Volume</h4>
+            <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full uppercase tracking-widest border border-slate-200">
+              Total {registrationVolumeTotal}
+            </span>
+          </div>
+          <div className="flex-1 flex flex-col justify-center min-h-[180px] sm:min-h-[200px]">
+            {!hasRegistrationData ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-700">No registrations yet today</p>
+                <p className="text-[10px] sm:text-xs text-slate-500 mt-1">Meal volume chart updates automatically after the first booking.</p>
+                <div className="grid grid-cols-3 gap-2 mt-4">
+                  {barData.map((item) => (
+                    <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-center">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">{item.label}</p>
+                      <p className="text-lg font-bold text-slate-700">0</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <>
+                <BarChart data={barData} height={180} />
+                <div className="grid grid-cols-3 gap-2 mt-4">
+                  {barData.map((item) => (
+                    <div key={item.label} className="text-center">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">{item.label}</p>
+                      <p className="text-base font-bold text-slate-800">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Schedule Timeline */}
@@ -158,31 +225,42 @@ export default function AdminDashboard() {
             <div className="w-1.5 h-1.5 bg-slate-200 rounded-full"></div>
           </h4>
           <div className="space-y-3">
-            {todayMeals.length === 0 ? (
-               <div className="p-8 bg-slate-50 rounded-2xl text-center text-slate-400 text-[10px] sm:text-xs italic border border-dashed border-slate-200">
-                 No operational schedule set.
-               </div>
-            ) : (
-               todayMeals.map((meal) => (
-                 <div key={meal.id} className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100 flex justify-between items-center bg-slate-50/50 hover:bg-slate-50 transition-all group border-l-4 border-l-slate-200">
+            {orderedMeals.map((mealType) => {
+              const meal = todayMeals.find(item => item.type === mealType);
+
+              if (!meal) {
+                return (
+                  <div key={mealType} className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-dashed border-slate-200 flex justify-between items-center bg-slate-50/70">
                     <div className="min-w-0">
-                      <p className="font-bold text-slate-900 capitalize text-sm sm:text-base">{meal.type}</p>
-                      <div className="flex items-center gap-1.5 mt-1 sm:mt-1.5">
-                        <Utensils size={10} className="text-slate-300" />
-                        <p className="text-[9px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold">
-                           {meal.startTime ? formatTime(meal.startTime) + ' - ' : ''}
-                           {formatTime(meal.closingTime)}
-                        </p>
-                      </div>
+                      <p className="font-bold text-slate-700 capitalize text-sm sm:text-base">{mealType}</p>
+                      <p className="text-[9px] sm:text-[10px] uppercase tracking-widest text-slate-400 font-bold mt-1 sm:mt-1.5">
+                        Schedule not configured today
+                      </p>
                     </div>
-                    <div className={cn(
-                      "w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full shrink-0 ml-4",
-                      meal.availability ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" : "bg-slate-300"
-                      )}
-                    />
-                 </div>
-               ))
-            )}
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full shrink-0 ml-4 bg-slate-300" />
+                  </div>
+                );
+              }
+
+              return (
+                <div key={meal.id} className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100 flex justify-between items-center bg-slate-50/50 hover:bg-slate-50 transition-all group border-l-4 border-l-slate-200">
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-900 capitalize text-sm sm:text-base">{meal.type}</p>
+                    <div className="flex items-center gap-1.5 mt-1 sm:mt-1.5">
+                      <Utensils size={10} className="text-slate-300" />
+                      <p className="text-[9px] sm:text-[10px] uppercase tracking-widest text-slate-500 font-bold">
+                        {getMealWindowLabel(meal)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={cn(
+                    "w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full shrink-0 ml-4",
+                    meal.availability ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" : "bg-slate-300"
+                  )}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
 
