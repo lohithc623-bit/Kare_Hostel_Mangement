@@ -2,48 +2,42 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Simple permission checks
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Collection: Users
-    match /users/{userId} {
-      allow read: if isSignedIn();
-      // Allow users to create and update their own profiles
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && request.auth.uid == userId;
-      allow delete: if isSignedIn() && request.auth.uid == userId;
+    function isStaffOrAdmin() {
+      return (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'staff']) ||
+             (request.auth.token.email != null && exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role in ['admin', 'staff']);
     }
 
-    // Public connection test document
+    function isOwner(userId) {
+      return request.auth.uid == userId || (request.auth.token.email != null && request.auth.token.email == userId);
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (isOwner(userId) || isStaffOrAdmin());
+    }
+
     match /test/connection {
       allow read, write: if true;
     }
 
-    // Collection: Meals - Only admins can create/update, all signed-in users can read
     match /meals/{mealId} {
       allow read: if isSignedIn();
-      allow create: if false; // Use admin SDK or Cloud Functions for meal creation
-      allow update: if false; // Use admin SDK or Cloud Functions for meal updates
-      allow delete: if false;
+      allow create, update, delete: if isSignedIn() && isStaffOrAdmin();
     }
 
-    // Collection: Registrations - Allow students to manage their own registrations
-    match /registrations/{regId} {
-      allow read: if isSignedIn();
-      // Any signed-in user can create registrations
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      // Any signed-in user can update their own registrations
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
-      // Any signed-in user can delete their own registrations
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    match /registrations/{registrationId} {
+      allow read: if isSignedIn() && (isOwner(resource.data.userId) || isStaffOrAdmin());
+      allow create: if isSignedIn() && (isOwner(request.resource.data.userId) || isStaffOrAdmin());
+      allow update, delete: if isSignedIn() && (isOwner(resource.data.userId) || isStaffOrAdmin());
     }
 
-    // Collection: Stats - Allow all signed-in users to write
     match /stats/{statId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow write: if isSignedIn() && isStaffOrAdmin();
     }
   }
 }

@@ -36,11 +36,14 @@ export default function History() {
     if (!profile) return;
     const q = query(
       collection(db, 'registrations'),
-      where('userId', '==', profile.uid),
-      orderBy('timestamp', 'desc')
+      where('userId', '==', profile.uid)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setHistory(snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() } as MealRegistration)));
+      const data = snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() } as MealRegistration));
+      data.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setHistory(data);
+    }, (error) => {
+      console.warn("Error fetching history:", error);
     });
     return () => unsubscribe();
   }, [profile]);

@@ -85,12 +85,14 @@ export default function StudentDashboard({ navigate }: { navigate: (p: string) =
     const histQuery = query(
       collection(db, 'registrations'),
       where('userId', '==', profile.uid),
-      where('status', '==', 'VERIFIED'),
-      orderBy('timestamp', 'desc'),
-      limit(5)
+      where('status', '==', 'VERIFIED')
     );
     const histUnsubscribe = onSnapshot(histQuery, (snapshot) => {
-      setRecentHistory(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MealRegistration)));
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MealRegistration));
+      data.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setRecentHistory(data.slice(0, 5));
+    }, (error) => {
+      console.warn("Error fetching recent history:", error);
     });
 
     return () => {

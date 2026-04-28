@@ -1,4 +1,4 @@
-import { db } from './index';
+import { db } from './index.js';
 
 // Mock firebase-admin
 jest.mock('firebase-admin/app', () => ({
